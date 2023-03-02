@@ -1,15 +1,34 @@
 from collections import defaultdict
+from pathlib import Path
 
 import tqdm
+import pickle
 
 from src.agent import Agent
 from src.environment import Environment
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+from collections import deque
 
 import numpy as np
+import random
 
 
-@dataclass
+@dataclass(frozen=True)
+class Experience:
+    """
+    An experience tuple
+    """
+    current_state: np.ndarray
+    current_action: int
+    current_qvalue: float
+    reward: float
+    next_state: np.ndarray
+    next_qvalue: float
+    is_terminal: bool
+    episode_timesteps: int
+
+
+@dataclass(frozen=True)
 class QLearningConfig:
     """
     A Q-Learning agent configuration
@@ -17,11 +36,11 @@ class QLearningConfig:
     eps_init: float
     eps_final: float
     eps_decay_timesteps: int
-    eps_decay_type: str  # linear or exponential
     beta: float
     gamma: float
-    use_experience_buffer: bool
-    use_candidate_q_table: bool
+    experience_replay_buffer_size: int = None
+    experience_replay_sample_size: int = None
+    candidate_q_table_update_frequency: int = None
 
 
 class QLearningAgent(Agent):
@@ -38,22 +57,18 @@ class QLearningAgent(Agent):
         self._config = config
         self._successful_episodes = 0
         self._eval = False
-
-        # Params
-        self._eps = config.eps_init  # current epsilon
-
-        if self._config.eps_decay_type == 'linear':
-            self._k = (config.eps_init - config.eps_final) / config.eps_decay_timesteps
-        else:
-            raise NotImplementedError('Not implemented yet')
-
+        self._use_candidate_qtable = False
+        self._experience_buffer = []
         self._gamma = config.gamma
+        self._eps = config.eps_init  # current epsilon
+        self._k = (config.eps_init - config.eps_final) / config.eps_decay_timesteps
 
-        if config.use_experience_buffer:
-            raise NotImplementedError('Experience buffer not implemented yet')
+        if config.experience_replay_buffer_size:
+            self._experience_buffer = deque(maxlen=config.experience_replay_buffer_size)
 
-        if config.use_candidate_q_table:
-            raise NotImplementedError('Candidate Q-table not implemented yet')
+        if config.candidate_q_table_update_frequency:
+            self._candidate_qtable = defaultdict(lambda: np.zeros(env.num_actions))
+            self._use_candidate_qtable = True
 
     def _on_timestep(self):
         """
@@ -76,7 +91,9 @@ class QLearningAgent(Agent):
             self._run_episode()
         print('Training finished')
         print(
-            f'Number of successful episodes: {self._successful_episodes} ({self._successful_episodes / n_episodes * 100}%)')
+            f'Number of successful episodes: {self._successful_episodes} '
+            f'({self._successful_episodes / n_episodes * 100}%)'
+        )
         print(self._q_table)
         print(len(self._q_table))
         self._eval = True
@@ -114,13 +131,17 @@ class QLearningAgent(Agent):
                 reward=reward,
                 next_state=next_state,
                 next_action=next_action,
-                is_term=is_terminal,
+                is_terminal=is_terminal,
             )
 
             action = next_action
             state, reward, valid_actions, is_terminal = next_state, reward, next_valid_actions, next_is_terminal
             cumu_reward += reward
             self._on_timestep()
+
+        # Replay experience
+        if self._config.experience_replay_buffer_size:
+            self._experience_replay()
 
         if cumu_reward > 0:
             # print(f'Episode {episode_no} finished with reward {cumu_reward} in {self._episode_timesteps} timesteps')
@@ -151,18 +172,44 @@ class QLearningAgent(Agent):
 
         return best_action
 
-    def _optimize_step(self, current_state: np.ndarray, current_action: int, reward: float,
-                       next_state: np.ndarray, next_action: int, is_term: bool):
-        if self._config.use_experience_buffer:
-            raise NotImplementedError('Experience buffer not implemented yet')
+    def _get_new_qval(self, qval: float, next_qval: float, reward: float) -> float:
+        new_qval = self._config.beta * (reward + (self._gamma ** self._episode_timesteps) * next_qval)
+        new_qval += (1 - self._config.beta) * qval
+        return new_qval
 
-        if self._config.use_candidate_q_table:
-            raise NotImplementedError('Candidate Q-table not implemented yet')
+    def _optimize_step(self, current_state: np.ndarray, current_action: int, reward: float,
+                       next_state: np.ndarray, next_action: int, is_terminal: bool):
 
         current_state_hash = hash(current_state.tobytes())
         qval = self._q_table[current_state_hash][current_action]
         next_qval = self._q_table[hash(next_state.tobytes())][next_action]
+        new_qval = self._get_new_qval(current_state, current_action, reward, next_state, next_action)
 
-        next_qval = self._config.beta * (reward + (self._gamma ** self._episode_timesteps) * next_qval)
-        next_qval += (1 - self._config.beta) * qval
-        self._q_table[current_state_hash][current_action] = next_qval
+        if self._config.experience_replay_buffer_size:
+            self._experience_buffer.append(
+                Experience(
+                    current_state=current_state,
+                    current_action=current_action,
+                    current_qvalue=qval,
+                    reward=reward,
+                    next_state=next_state,
+                    next_qvalue=next_qval,
+                    is_terminal=is_terminal,
+                    episode_timesteps=self._episode_timesteps,
+                )
+            )
+
+        if not self._use_candidate_qtable:
+            self._q_table[current_state_hash][current_action] = new_qval
+            return
+
+        self._candidate_qtable[current_state_hash][current_action] = new_qval
+        if self._timesteps % self._config.candidate_q_table_update_frequency == 0:
+            self._q_table = {key: value.copy() for key, value in self._candidate_qtable.items()}
+
+    def _experience_replay(self):
+        for experience in random.sample(self._experience_buffer, self._config.experience_replay_sample_size):
+            new_qval = self._get_new_qval(**asdict(experience))
+
+            if experience.is_terminal:
+                raise NotImplementedError('Experience replay with terminal states not implemented')

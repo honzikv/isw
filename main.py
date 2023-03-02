@@ -16,14 +16,17 @@ if __name__ == '__main__':
             eps_decay_timesteps=500_000,
             eps_decay_type='linear',
             use_candidate_q_table=False,
-            use_experience_buffer=False,
+            use_experience_replay=False,
             beta=0.9,
-            gamma=0.999
+            gamma=0.95
         )
     )
 
-    agent.train(n_episodes=1_000_000)
-    agent.eval(n_episodes=10_000)
+    agent.train(n_episodes=1_000)
+    agent.eval(n_episodes=10)
+
+    QLearningAgent.save(agent, 'qlearning_agent.pkl')
+    agent = QLearningAgent.load('qlearning_agent.pkl')
 
     # state, _, valid_actions, is_terminal = env.set_to_initial_state()
     # total_reward = .0
