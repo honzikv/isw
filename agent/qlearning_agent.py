@@ -8,6 +8,8 @@ from src.agent import Agent
 from src.environment import Environment
 from dataclasses import dataclass, asdict
 from collections import deque
+from copy import copy
+
 
 import numpy as np
 import random
@@ -185,8 +187,8 @@ class QLearningAgent(Agent):
     def _optimize_step(self, current_state: np.ndarray, current_action: int, reward: float,
                        next_state: np.ndarray, next_action: int, next_valid_actions: set[int], is_terminal: bool):
         current_qval = self._q_table[hash(current_state.tobytes())][current_action]
-        _, next_qval = self._get_max_qval(next_state, list(next_valid_actions))
-        # next_qval = self._q_table[hash(next_state.tobytes())][next_action]
+        # _, next_qval = self._get_max_qval(next_state, list(next_valid_actions))
+        next_qval = self._q_table[hash(next_state.tobytes())][next_action]
 
         if not is_terminal:
             new_qval = self.config.beta * (reward + self._gamma * next_qval)
@@ -215,8 +217,8 @@ class QLearningAgent(Agent):
             return
 
         self._candidate_qtable[hash(current_state.tobytes())][current_action] = new_qval
-        if self._timesteps % self.config.candidate_q_table_update_frequency == 0:
-            self._q_table = {key: value.copy() for key, value in self._candidate_qtable.items()}
+        if self._timesteps % self.config.candidate_q_table_update_frequency == self.config.candidate_q_table_update_frequency - 1:
+            self._q_table = copy(self._candidate_qtable)
 
     def _experience_replay(self):
         raise NotImplementedError('Experience replay not implemented yet')
