@@ -113,10 +113,6 @@ class QLearningAgent(Agent):
 
         print(f'Number of successful episodes: {successes} ({successes / n_episodes * 100}%)')
 
-    def run_episode(self):
-        self._episode_timesteps = 0
-        state, _, valid_actions, is_terminal = self._env.set_to_initial_state()
-
     def _run_episode(self):
         """
         Trains the agent on a single episode
@@ -128,7 +124,7 @@ class QLearningAgent(Agent):
 
         while not is_terminal:
             # Perform the action
-            next_state, reward, next_valid_actions, next_is_terminal = self._env.act(action)
+            next_state, reward, next_valid_actions, is_terminal = self._env.act(action)
             next_action = self.best_action(next_state, next_valid_actions)
 
             # Optimize the agent
@@ -137,12 +133,13 @@ class QLearningAgent(Agent):
                 current_action=action,
                 reward=reward,
                 next_state=next_state,
+                next_action=next_action,
                 next_valid_actions=next_valid_actions,
                 is_terminal=is_terminal,
             )
 
             action = next_action
-            state, reward, valid_actions, is_terminal = next_state, reward, next_valid_actions, next_is_terminal
+            state, reward, valid_actions = next_state, reward, next_valid_actions
             cumulative_reward += reward
             self._on_timestep()
 
@@ -157,9 +154,9 @@ class QLearningAgent(Agent):
         return False
 
     def _get_max_qval(self, state: np.ndarray, valid_actions: list[int]) -> tuple[int, float]:
-        max_action_val = -np.inf
+        max_action_val = self._q_table[hash(state.tobytes())][valid_actions[0]]
         best_action = valid_actions[0]
-        q_values = self._q_table[hash(state.data.tobytes())]
+        q_values = self._q_table[hash(state.tobytes())]
         for action_no in valid_actions[1:]:
             action_val = q_values[action_no]
             if action_val > max_action_val:
@@ -185,26 +182,26 @@ class QLearningAgent(Agent):
 
         return best_action
 
-    def _get_new_qval(self, qval: float, next_qval: float, reward: float) -> float:
-        new_qval = self.config.beta * (reward + (self._gamma ** self._episode_timesteps) * next_qval)
-        new_qval += (1 - self.config.beta) * qval
-        return new_qval
-
     def _optimize_step(self, current_state: np.ndarray, current_action: int, reward: float,
-                       next_state: np.ndarray, next_valid_actions, is_terminal: bool):
-        qval = self._q_table[hash(current_state.data.tobytes())][current_action]
-
+                       next_state: np.ndarray, next_action: int, next_valid_actions: set[int], is_terminal: bool):
+        current_qval = self._q_table[hash(current_state.tobytes())][current_action]
         _, next_qval = self._get_max_qval(next_state, list(next_valid_actions))
-        if next_qval > 0:
-            pass
-        new_qval = self._get_new_qval(qval, next_qval, reward)
+        # next_qval = self._q_table[hash(next_state.tobytes())][next_action]
+
+        if not is_terminal:
+            new_qval = self.config.beta * (reward + self._gamma * next_qval)
+            new_qval += (1 - self.config.beta) * current_qval
+        else:
+            new_qval = self.config.beta * reward + (1 - self.config.beta) * current_qval
+
+        self._q_table[hash(current_state.tobytes())][current_action] = new_qval
 
         if self._use_exp_buffer:
             self._experience_buffer.append(
                 Experience(
                     current_state=current_state,
                     current_action=current_action,
-                    current_qvalue=qval,
+                    current_qvalue=current_qval,
                     reward=reward,
                     next_state=next_state,
                     next_qvalue=next_qval,
@@ -214,16 +211,12 @@ class QLearningAgent(Agent):
             )
 
         if not self._use_candidate_qtable:
-            self._q_table[hash(current_state.data.tobytes())][current_action] = new_qval
+            self._q_table[hash(current_state.tobytes())][current_action] = new_qval
             return
 
-        self._candidate_qtable[hash(current_state.data.tobytes())][current_action] = new_qval
+        self._candidate_qtable[hash(current_state.tobytes())][current_action] = new_qval
         if self._timesteps % self.config.candidate_q_table_update_frequency == 0:
             self._q_table = {key: value.copy() for key, value in self._candidate_qtable.items()}
 
     def _experience_replay(self):
-        for experience in random.sample(self._experience_buffer, self.config.experience_replay_sample_size):
-            new_qval = self._get_new_qval(**asdict(experience))
-
-            if experience.is_terminal:
-                raise NotImplementedError('Experience replay with terminal states not implemented')
+        raise NotImplementedError('Experience replay not implemented yet')

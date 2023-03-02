@@ -12,9 +12,9 @@ if __name__ == '__main__':
         config=QLearningConfig(
             eps_init=1.0,
             eps_final=0.0,
-            eps_decay_timesteps=100_000,
-            beta=0.5,
-            gamma=.99,
+            eps_decay_timesteps=4_000,
+            beta=0.1,
+            gamma=.78,
         )
     )
 
