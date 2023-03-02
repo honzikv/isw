@@ -140,9 +140,12 @@ class Environment:
         if avg_reward < self.target_total_reward:
             logger.info(f"agent failed to solve env, got reward {avg_reward}, "
                         f"expected at least {self.target_total_reward}")
+            print(f"agent failed to solve env, got reward {avg_reward}, "
+                  f"expected at least {self.target_total_reward}")
             return False, avg_reward, avg_steps
         else:
             logger.info(f"agent solved env, got reward {avg_reward}")
+            print(f"agent solved env, got reward {avg_reward}")
             return True, avg_reward, avg_steps
 
     def render_episode(self, agent) -> tuple[int, float]:
