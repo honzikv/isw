@@ -185,7 +185,7 @@ class QLearningAgent(Agent):
         return best_action
 
     def _optimize_step(self, current_state: np.ndarray, current_action: int, reward: float,
-                       next_state: np.ndarray, next_action: int, next_valid_actions: set[int], is_terminal: bool):
+                       next_state: np.ndarray, next_action: int, is_terminal: bool):
         current_qval = self._q_table[hash(current_state.tobytes())][current_action]
         # _, next_qval = self._get_max_qval(next_state, list(next_valid_actions))
         next_qval = self._q_table[hash(next_state.tobytes())][next_action]

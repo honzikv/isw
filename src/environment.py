@@ -1038,7 +1038,7 @@ class FrozenLake(Environment):
                              rect_side_length,
                              rect_side_length)
 
-    def __init__(self, size=4, ice_probability=0.6, slip_probability=0.3, deterministic=True):
+    def __init__(self, size=4, ice_probability=0.1, slip_probability=0.3, deterministic=True):
         """
         :param size: size of the lake (N by N square grid, default 4)
         :param ice_probability: probability that a random square is ice (dual to water, default 0.6, resp 0.4 for water)
