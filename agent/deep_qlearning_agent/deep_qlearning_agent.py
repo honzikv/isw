@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from functools import reduce
+from itertools import count
 
 import tqdm
 import wandb
@@ -42,16 +43,16 @@ class DeepQLearningNet(nn.Module):
         self.state_shape = state_shape
         self.num_actions = num_actions
 
-        self._input_layer = nn.Linear(state_shape, 256)
-        self._hidden1 = nn.Linear(256, 128)
-        self._hidden2 = nn.Linear(128, 128)
-        self._output_layer = nn.Linear(128, num_actions)
+        self.input_layer = nn.Linear(state_shape, 256)
+        self.hidden1 = nn.Linear(256, 128)
+        self.hidden2 = nn.Linear(128, 128)
+        self.output_layer = nn.Linear(128, num_actions)
 
     def forward(self, state: torch.Tensor):
-        x = torch.relu(self._input_layer(state))
-        x = torch.relu(self._hidden1(x))
-        x = torch.relu(self._hidden2(x))
-        x = self._output_layer(x)
+        x = torch.relu(self.input_layer(state))
+        x = torch.relu(self.hidden1(x))
+        x = torch.relu(self.hidden2(x))
+        x = self.output_layer(x)
         return x
 
 
@@ -73,33 +74,12 @@ class QLearningConfig:
     wandb_logging_interval: int = 100
 
 
-def plot_durations(episode_durations, show_result=False):
-    plt.figure(1)
-    durations_t = torch.tensor(episode_durations, dtype=torch.float)
-    if show_result:
-        plt.title('Result')
-    else:
-        plt.clf()
-        plt.title('Training...')
-    plt.xlabel('Episode')
-    plt.ylabel('Duration')
-    plt.plot(durations_t.numpy())
-    # Take 100 episode averages and plot them too
-    if len(durations_t) >= 100:
-        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(99), means))
-        plt.plot(means.numpy())
-
-    plt.pause(0.001)  # pause a bit so that plots are updated
-
-
 class DeepQLearningAgent(Agent):
 
     def __init__(self, env: Environment, config: QLearningConfig, device: torch.device = None):
         super().__init__(env)
         self._steps_done = 0
         self.config = config
-        self._memory = ReplayMemory(10_000)
         self._eval = False
         self.input_size = self._get_input_size()
         self._policy_net = DeepQLearningNet(self.input_size, env.num_actions)
@@ -143,12 +123,9 @@ class DeepQLearningAgent(Agent):
         state = torch.tensor(list(state))
         random_action = random.random()
         valid_actions = list(valid_actions)
+        valid_actions.sort()
 
-        if self._eval:
-            eps = 0
-        else:
-            eps = self.eps
-
+        eps = 0 if self._eval else self.eps
         if random_action > eps:
             with torch.no_grad():
                 valid_actions.sort()
@@ -162,34 +139,45 @@ class DeepQLearningAgent(Agent):
         if len(self._memory) < self.config.batch_size:
             return
 
+        # Sample batch
         transitions = self._memory.sample(self.config.batch_size)
-        batch = Transition(*zip(*transitions))
+        batch = Transition(
+            *zip(*transitions))  # convert list[Transition] to Transition(list of states, list of actions, etc)
 
+        # Mask out None values
+        non_final_mask = torch.tensor(
+            tuple(map(lambda state: state is not None, batch.next_state)),
+            dtype=torch.bool,
+        )
+
+        non_final_next_states = torch.stack([state for state in batch.next_state if state is not None])
+
+        # Extract batch of states, actions, and rewards
         state_batch = torch.cat(batch.state).view(self.config.batch_size, self.input_size).float()
         action_batch = torch.cat(batch.action)
         reward_batch = torch.tensor(np.asarray(batch.reward, dtype=np.float32))
 
         # Get Q(s_t, a) from the batch
-        state_action_values = self._policy_net(state_batch).gather(1, action_batch).to(device=self.device)
-        next_state_values = torch.zeros(self.config.batch_size, device=self.device)
+        state_action_values = self._policy_net(state_batch).gather(1, action_batch)
 
-        # TODO wrap this in a function
+        # Compute values of Q(s_{t+1}) for all next states
+        next_state_values = torch.zeros(self.config.batch_size)
         with torch.no_grad():
-            batch_out = self._target_net(state_batch).detach().numpy()
+            next_state_values[non_final_mask] = self._target_net(non_final_next_states).detach().max(1)[0]
 
-            # TODO this is such a garbage code
-            for i in range(len(batch_out)):
-                valid_actions = batch.next_valid_actions[i]
-                valid_actions = list(valid_actions)
-                valid_actions.sort()
-                out = np.max(np.take(batch_out[i], valid_actions))
-                next_state_values[i] = out.item()
+            # # TODO this is such a garbage code
+            # for i in range(len(batch_out)):
+            #     valid_actions = batch.next_valid_actions[i]
+            #     valid_actions = list(valid_actions)
+            #     valid_actions.sort()
+            #     out = np.max(np.take(batch_out[i], valid_actions))
+            #     next_state_values[i] = out.item()
 
-        expected_state_action_values = (next_state_values * self.config.gamma) + reward_batch.to(device=self.device)
-
+        expected_state_action_values = (next_state_values * self.config.gamma) + reward_batch
         loss = loss_fn(state_action_values, expected_state_action_values.unsqueeze(1))
 
-        if self._timesteps % self.config.wandb_logging_interval == self.config.wandb_logging_interval - 1:
+        if self.config.wandb_logging and self._timesteps % self.config.wandb_logging_interval \
+                == self.config.wandb_logging_interval - 1:
             wandb.log({'loss': loss.item()})
 
         optimizer.zero_grad()
@@ -204,40 +192,41 @@ class DeepQLearningAgent(Agent):
             optimizer = optim.AdamW(self._policy_net.parameters(), lr=self.config.lr)
 
         self._eval = False
-
         for episode in trange(n_episodes):
             cumu_reward, ep_len = 0, 0
             state, reward, valid_actions, is_terminal = self._env.set_to_initial_state()
             state = torch.tensor(state, dtype=torch.float32)
 
-            while True:
+            for t in count():
                 action = self.best_action(state, valid_actions)
                 next_state, reward, next_valid_actions, is_terminal = self._env.act(action)
                 next_state = torch.tensor(next_state, dtype=torch.float32)
 
+                if is_terminal:
+                    next_state = None
+
                 cumu_reward += reward
                 ep_len += 1
 
-                if not is_terminal:
-                    self._memory.push(state, action, next_state, reward, next_valid_actions)
-
+                self._memory.push(state, action, next_state, reward, next_valid_actions)
                 self._optimize(loss_fn, optimizer)
 
                 state = next_state
                 valid_actions = next_valid_actions
 
-                target_net_state = self._target_net.state_dict()
-                policy_net_state = self._policy_net.state_dict()
+                target_net_state_dict = self._target_net.state_dict()
+                policy_net_state_dict = self._policy_net.state_dict()
 
                 # Update target network
-                for k in policy_net_state:
-                    target_net_state[k] = self.config.beta * policy_net_state[k] + (1 - self.config.beta) * \
-                                          target_net_state[k]
+                for k in policy_net_state_dict:
+                    target_net_state_dict[k] = self.config.beta * policy_net_state_dict[k] + (1 - self.config.beta) * \
+                                               target_net_state_dict[k]
 
-                self._target_net.load_state_dict(target_net_state)
+                self._target_net.load_state_dict(target_net_state_dict)
                 self._timesteps += 1
 
-                if self._timesteps % self.config.wandb_logging_interval == self.config.wandb_logging_interval - 1:
+                if self.config.wandb_logging and self._timesteps % self.config.wandb_logging_interval \
+                        == self.config.wandb_logging_interval - 1:
                     wandb.log({
                         'episode_reward': cumu_reward,
                         'episode_length': ep_len,

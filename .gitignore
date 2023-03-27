@@ -1,2 +1,5 @@
 */**/__pycache__
 .idea
+agent/deep_qlearning_agent/dqn
+agent/deep_qlearning_agent/lightning_logs
+agent/deep_qlearning_agent/wandb
