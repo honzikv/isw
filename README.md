@@ -25,7 +25,7 @@ Install requirements:
 pip3 install -r requirements.txt
 ```
 
-# QLearning
+# Q-Learning
 
 To train: `python train_qlearning.py --output-file <output_file>`
 
@@ -33,17 +33,18 @@ which will save model to `output_file`.
 
 To run inference: `python inference_qlearning.py --model-file <model_file>`
 
-**Pre-trained model** is available in `pretrained/qlearning.ckpt`.
+**Pre-trained model** for this task is available in `pretrained/qlearning.ckpt`.
 
-# Deep QLearning
+# Deep Q-Learning
 
 To train: `python train_deep_qlearning.py`
 
 To run inference: `python inference_deep_qlearning.py --model-path <weights_path>`
 
-**Pre-trained model** is available in `pretrained/deep_qlearning.ckpt`.
+**Pre-trained model** for this task is available in `pretrained/deep_qlearning.ckpt`.
 
 
 # Running pre-trained
 
 Q-Learning: `python inference_qlearning.py --model-path pretrained/qlearning.ckpt`
+Deep Q-Learning `python inference_deep_qlearning.py --model-path pretrained/deep_qnet.ckpt`
