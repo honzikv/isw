@@ -39,11 +39,11 @@ To run inference: `python inference_qlearning.py --model-file <model_file>`
 
 To train: `python train_deep_qlearning.py`
 
-To run inference: `python inference_deep_qlearning.py --weights-path <weights_path>`
+To run inference: `python inference_deep_qlearning.py --model-path <weights_path>`
 
 **Pre-trained model** is available in `pretrained/deep_qlearning.ckpt`.
 
 
 # Running pre-trained
 
-Q-Learning: `python inference_qlearning.py --model-file pretrained/qlearning.ckpt`
+Q-Learning: `python inference_qlearning.py --model-path pretrained/qlearning.ckpt`
