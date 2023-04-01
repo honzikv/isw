@@ -7,11 +7,9 @@ from agent.qlearning_agent import QLearningAgent, QLearningConfig
 from src.environment import Connect4, TicTacToe, FrozenLake, CartPole, MountainCar, LectureExample, MultiArmedBandit
 from src.play import Simulator
 
-from queue import Queue
 
 if __name__ == '__main__':
     env = FrozenLake(size=16, ice_probability=.9, slip_probability=.05)
-    queue = Queue()
 
     agent = QLearningAgent(
         env=env,

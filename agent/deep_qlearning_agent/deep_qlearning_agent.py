@@ -1,99 +1,42 @@
-from dataclasses import dataclass
 from functools import reduce
-from itertools import count
+from typing import Callable, List, Union
 
-import tqdm
-import wandb
-from tqdm import trange
-
-from src.agent import Agent
-from torch import nn, optim
-
-from collections import deque, namedtuple
-
-import random
 import torch
-import numpy as np
+import random
 
+from agent.deep_qlearning_agent.replay_buffer import Experience, ReplayBuffer
+from src.agent import Agent
 from src.environment import Environment
-from matplotlib import pyplot as plt
-
-Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward', 'next_valid_actions'))
-
-
-class ReplayMemory:
-
-    def __init__(self, capacity):
-        self.memory = deque(maxlen=capacity)
-
-    def push(self, *transition):
-        self.memory.append(Transition(*transition))
-
-    def sample(self, batch_size):
-        return random.sample(self.memory, batch_size)
-
-    def __len__(self):
-        return len(self.memory)
-
-
-class DeepQLearningNet(nn.Module):
-
-    def __init__(self, state_shape, num_actions):
-        super(DeepQLearningNet, self).__init__()
-        self.state_shape = state_shape
-        self.num_actions = num_actions
-
-        self.input_layer = nn.Linear(state_shape, 256)
-        self.hidden1 = nn.Linear(256, 128)
-        self.hidden2 = nn.Linear(128, 128)
-        self.output_layer = nn.Linear(128, num_actions)
-
-    def forward(self, state: torch.Tensor):
-        x = torch.relu(self.input_layer(state))
-        x = torch.relu(self.hidden1(x))
-        x = torch.relu(self.hidden2(x))
-        x = self.output_layer(x)
-        return x
-
-
-@dataclass(frozen=True)
-class QLearningConfig:
-    """
-    A Q-Learning agent configuration
-    """
-    eps_init: float
-    eps_final: float
-    eps_decay_timesteps: int
-    beta: float
-    gamma: float
-    lr: float
-    replay_memory_size: int = 10_000  # 10k
-    batch_size: int = 256
-    n_episodes: int = 1000
-    wandb_logging: bool = False
-    wandb_logging_interval: int = 100
 
 
 class DeepQLearningAgent(Agent):
 
-    def __init__(self, env: Environment, config: QLearningConfig, device: torch.device = None):
+    def __init__(self, env: Environment, replay_buffer: ReplayBuffer, device):
         super().__init__(env)
-        self._steps_done = 0
-        self.config = config
-        self._eval = False
-        self.input_size = self._get_input_size()
-        self._policy_net = DeepQLearningNet(self.input_size, env.num_actions)
-        self._target_net = DeepQLearningNet(self.input_size, env.num_actions)
-        self._memory = ReplayMemory(config.replay_memory_size)
-        self._timesteps = 0
-        self._k = (config.eps_init - config.eps_final) / config.eps_decay_timesteps
 
-        if device is None:
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        else:
-            self.device = device
+        self._replay_buffer = replay_buffer
+        self._net = None
+        self._device = device
 
-    def _get_input_size(self) -> np.shape:
+        # Initialize state, a bit garbage but function is reused elsewhere
+        self.state, self.valid_actions = None, None
+        self.reset_env()
+
+    @classmethod
+    def from_pretrained(cls, env: Environment, net: torch.nn.Module, device='cpu'):
+        agent = cls(env, None, device)
+        agent.net = net
+
+        return agent
+
+    def reset_env(self):
+        state, _, valid_actions, _ = self._env.set_to_initial_state()
+        self.state = state
+        self.valid_actions = list(valid_actions)
+        self.valid_actions.sort()
+
+    @property
+    def observation_space(self):
         shape = self._env.observation_shape
         if isinstance(shape, tuple):
             return reduce(lambda x, y: x * y, shape)
@@ -101,138 +44,114 @@ class DeepQLearningAgent(Agent):
             return shape
 
     @property
-    def policy_net(self) -> DeepQLearningNet:
-        return self._policy_net
+    def n_actions(self):
+        return self._env.num_actions
 
     @property
-    def target_net(self) -> DeepQLearningNet:
-        return self._target_net
+    def net(self):
+        return self._net
 
-    @property
-    def steps_done(self):
-        return self._steps_done
+    @net.setter
+    def net(self, net):
+        """
+        This needs to be called after training for the best_action method
+        to behave as expected. Otherwise, net must be injected via parameter
+        """
+        self._net = net
 
-    @property
-    def eps(self):
-        if self._timesteps < self.config.eps_decay_timesteps:
-            return self.config.eps_init - self._k * self._timesteps
+    @torch.no_grad()
+    def best_action(self, state: Union[torch.Tensor, set], valid_actions: List[int], net=None, eps=None, device=None):
+        """
+        Perform best action.
+        Args:
+            state: state to perform action on
+            valid_actions: list of valid actions - must be sorted
+            net: network to use for action selection - injected during training
+            eps: epsilon value for epsilon-greedy action selection
+            device: device to use for action selection
+        """
+        if net is None:
+            net = self._net
+            assert net is not None, 'net must be injected via parameter or set as property'
 
-        return self.config.eps_final
+        device = device or self._device
+        eps = eps or 0.0
+        if random.uniform(0, 1) > eps:
+            # if isinstance(state, set):
+            #     state = list(state)
+            #     state.sort()
 
-    def best_action(self, state, valid_actions):
-        state = torch.tensor(list(state))
-        random_action = random.random()
-        valid_actions = list(valid_actions)
-        valid_actions.sort()
+            if not isinstance(state, torch.Tensor):
+                state = torch.tensor(state, dtype=torch.float32, device=device)
+            else:
+                state = state.to(device)
 
-        eps = 0 if self._eval else self.eps
-        if random_action > eps:
-            with torch.no_grad():
-                valid_actions.sort()
-                out = self._policy_net(state).detach().numpy()
-                out = np.take(out, valid_actions)
-                return torch.tensor(valid_actions[np.argmax(out)], dtype=torch.int64).view(1, 1)
+            q_values = net(state)
+            # Filter only valid actions
+            q_values = q_values[valid_actions]
+            action = torch.argmax(q_values, dim=0)
+            action = valid_actions[int(action.item())]
         else:
-            return torch.tensor(random.choice(valid_actions)).view(1, 1)
+            action = random.choice(valid_actions)
 
-    def _optimize(self, loss_fn, optimizer):
-        if len(self._memory) < self.config.batch_size:
-            return
+        return action
 
-        # Sample batch
-        transitions = self._memory.sample(self.config.batch_size)
-        batch = Transition(
-            *zip(*transitions))  # convert list[Transition] to Transition(list of states, list of actions, etc)
+    @torch.no_grad()
+    def step(self, net: torch.nn.Module, eps: float, device):
+        """
+        Perform a single step in the environment
+        Args:
+            net: network to use for action selection
+            eps: epsilon value for epsilon-greedy policy
+        """
+        action = self.best_action(self.state, self.valid_actions, net, eps, device)
 
-        # Mask out None values
-        non_final_mask = torch.tensor(
-            tuple(map(lambda state: state is not None, batch.next_state)),
-            dtype=torch.bool,
-        )
+        new_state, reward, new_valid_actions, is_terminal = self._env.act(action)
+        next_valid_actions = list(new_valid_actions)
+        next_valid_actions.sort()
 
-        non_final_next_states = torch.stack([state for state in batch.next_state if state is not None])
+        # Push to the buffer
+        self._replay_buffer.push(Experience(
+            state=self.state,
+            action=action,
+            next_state=new_state,
+            reward=reward,
+            next_valid_actions=next_valid_actions,
+            is_terminal=is_terminal,
+        ))
 
-        # Extract batch of states, actions, and rewards
-        state_batch = torch.cat(batch.state).view(self.config.batch_size, self.input_size).float()
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.tensor(np.asarray(batch.reward, dtype=np.float32))
+        # Update state and terminal status
+        self.state = new_state
 
-        # Get Q(s_t, a) from the batch
-        state_action_values = self._policy_net(state_batch).gather(1, action_batch)
+        if is_terminal:
+            self.reset_env()
+        else:
+            self.valid_actions = next_valid_actions
 
-        # Compute values of Q(s_{t+1}) for all next states
-        next_state_values = torch.zeros(self.config.batch_size)
-        with torch.no_grad():
-            next_state_values[non_final_mask] = self._target_net(non_final_next_states).detach().max(1)[0]
+        return reward, is_terminal
 
-            # # TODO this is such a garbage code
-            # for i in range(len(batch_out)):
-            #     valid_actions = batch.next_valid_actions[i]
-            #     valid_actions = list(valid_actions)
-            #     valid_actions.sort()
-            #     out = np.max(np.take(batch_out[i], valid_actions))
-            #     next_state_values[i] = out.item()
+    @torch.no_grad()
+    def run_episode(self, net: torch.nn.Module,
+                    get_eps: Callable[[], float],
+                    increment_timestep: Callable[[], None],
+                    device):
+        """
+        Run a single episode. This is called during training
+        Args:
+            net: network to use for action selection
+            get_eps: function to get epsilon value for epsilon-greedy policy
+            increment_timestep: function to increment timestep
+            device: device to use for action selection
+        """
+        self.reset_env()
 
-        expected_state_action_values = (next_state_values * self.config.gamma) + reward_batch
-        loss = loss_fn(state_action_values, expected_state_action_values.unsqueeze(1))
+        total_reward = 0.0
+        while True:
+            reward, is_terminal = self.step(net, get_eps(), device)
+            total_reward += reward
+            increment_timestep()
 
-        if self.config.wandb_logging and self._timesteps % self.config.wandb_logging_interval \
-                == self.config.wandb_logging_interval - 1:
-            wandb.log({'loss': loss.item()})
+            if is_terminal:
+                break
 
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_value_(self._policy_net.parameters(), 100)
-        optimizer.step()
-
-    def train(self, loss_fn=None, optimizer=None, n_episodes: int = 10_000):
-        if loss_fn is None:
-            loss_fn = nn.MSELoss()
-        if optimizer is None:
-            optimizer = optim.AdamW(self._policy_net.parameters(), lr=self.config.lr)
-
-        self._eval = False
-        for episode in trange(n_episodes):
-            cumu_reward, ep_len = 0, 0
-            state, reward, valid_actions, is_terminal = self._env.set_to_initial_state()
-            state = torch.tensor(state, dtype=torch.float32)
-
-            for t in count():
-                action = self.best_action(state, valid_actions)
-                next_state, reward, next_valid_actions, is_terminal = self._env.act(action)
-                next_state = torch.tensor(next_state, dtype=torch.float32)
-
-                if is_terminal:
-                    next_state = None
-
-                cumu_reward += reward
-                ep_len += 1
-
-                self._memory.push(state, action, next_state, reward, next_valid_actions)
-                self._optimize(loss_fn, optimizer)
-
-                state = next_state
-                valid_actions = next_valid_actions
-
-                target_net_state_dict = self._target_net.state_dict()
-                policy_net_state_dict = self._policy_net.state_dict()
-
-                # Update target network
-                for k in policy_net_state_dict:
-                    target_net_state_dict[k] = self.config.beta * policy_net_state_dict[k] + (1 - self.config.beta) * \
-                                               target_net_state_dict[k]
-
-                self._target_net.load_state_dict(target_net_state_dict)
-                self._timesteps += 1
-
-                if self.config.wandb_logging and self._timesteps % self.config.wandb_logging_interval \
-                        == self.config.wandb_logging_interval - 1:
-                    wandb.log({
-                        'episode_reward': cumu_reward,
-                        'episode_length': ep_len,
-                        'episode': episode,
-                        'eps': self.eps
-                    })
-
-                if is_terminal:
-                    break
+        return total_reward

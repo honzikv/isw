@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import wandb
 
-from agent.deep_qlearning_agent.deep_qlearning_agent import DeepQLearningAgent, QLearningConfig
+from agent.old.deep_qlearning_agent import DeepQLearningAgent, DeepQLearningConfig
 from src.environment import CartPole
 
 LOG_WANDB = True
@@ -20,7 +20,7 @@ if __name__ == '__main__':
 
     agent = DeepQLearningAgent(
         env=env,
-        config=QLearningConfig(
+        config=DeepQLearningConfig(
             eps_init=1.0,
             eps_final=0.05,
             eps_decay_timesteps=50_000,

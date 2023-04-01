@@ -3,3 +3,6 @@
 agent/deep_qlearning_agent/dqn
 agent/deep_qlearning_agent/lightning_logs
 agent/deep_qlearning_agent/wandb
+deep-qlearning
+lightning_logs
+wandb
