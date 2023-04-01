@@ -1,3 +1,4 @@
+import hashlib
 import pickle
 from collections import defaultdict
 
@@ -6,6 +7,8 @@ import numpy as np
 from pathlib import Path
 
 from agent.qlearning_agent.qlearning_agent import QLearningAgent
+
+hash = lambda x: int(hashlib.md5(x).hexdigest(), 16)
 
 
 def save(file: str, qlearning_agent: QLearningAgent):
@@ -18,8 +21,7 @@ def save(file: str, qlearning_agent: QLearningAgent):
     gamma = config.gamma
     k = qlearning_agent._k
 
-    with open(file, 'wb') as file:
-        pickle.dump(file=file, obj={
+    obj = {
             'q_table': dict(q_table),
             'timesteps': timesteps,
             'episode_timesteps': episode_timesteps,
@@ -27,14 +29,17 @@ def save(file: str, qlearning_agent: QLearningAgent):
             'eps': eps,
             'gamma': gamma,
             'k': k,
-        })
+        }
+
+    with open(file, 'wb') as file:
+        pickle.dump(file=file, obj=obj, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def load(file: Path, agent: QLearningAgent):
     with open(file, 'rb') as file:
         state_dict = pickle.load(file=file)
 
-    agent._q_table = defaultdict(lambda: np.zeros(agent.env.num_actions), state_dict['q_table'])
+    agent._q_table = defaultdict(lambda: np.zeros(agent._env.num_actions), state_dict['q_table'])
     agent._timesteps = state_dict['timesteps']
     agent._episode_timesteps = state_dict['episode_timesteps']
     agent._successful_episodes = state_dict['successful_episodes']

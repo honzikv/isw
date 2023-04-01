@@ -11,14 +11,13 @@ from src.play import Simulator
 def main(args):
     env = CartPole()
 
-    if not args.weights_path.exists():
-        print(f'Weights file {args.weights_path} does not exist')
+    if not args.model_path.exists():
+        print(f'Weights file {args.model_path} does not exist')
         exit(1)
 
-    deepq_model = DeepQModuleLightning.load_from_checkpoint(args.weights_path, env=env, device=None)
+    deepq_model = DeepQModuleLightning.load_from_checkpoint(args.model_path, env=env, device=None)
 
     pl.seed_everything(42069)
-
     net = deepq_model.target_net
     agent = DeepQLearningAgent.from_pretrained(
         env=env,
@@ -35,7 +34,7 @@ def main(args):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--weights-path', type=Path, required=True, default='weights.ckpt')
+    argparser.add_argument('--model-path', type=Path, required=True, default='weights.ckpt')
 
     args = argparser.parse_args()
 

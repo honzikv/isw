@@ -1,3 +1,4 @@
+import hashlib
 from collections import defaultdict
 
 import tqdm
@@ -11,6 +12,8 @@ from copy import copy
 
 import numpy as np
 import random
+
+hash = lambda x: int(hashlib.md5(x).hexdigest(), 16)
 
 
 @dataclass(frozen=True)
@@ -33,11 +36,11 @@ class QLearningConfig:
     """
     A Q-Learning agent configuration
     """
-    eps_init: float
-    eps_final: float
-    eps_decay_timesteps: int
-    beta: float
-    gamma: float
+    eps_init: float = 1.0
+    eps_final: float = 0.0
+    eps_decay_timesteps: int = 7500
+    beta: float = .2
+    gamma: float = .05
     experience_replay_buffer_size: int = None
     experience_replay_sample_size: int = None
     candidate_q_table_update_frequency: int = None
@@ -134,7 +137,7 @@ class QLearningAgent(Agent):
                 reward=reward,
                 next_state=next_state,
                 next_action=next_action,
-                next_valid_actions=next_valid_actions,
+                # next_valid_actions=next_valid_actions,
                 is_terminal=is_terminal,
             )
 
