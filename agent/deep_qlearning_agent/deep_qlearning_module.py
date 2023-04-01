@@ -78,7 +78,6 @@ class DeepQModuleLightning(pl.LightningModule):
         self._running_values = deque([0 for _ in range(1000)], maxlen=100)
 
         self._timesteps = 0
-        self.episode_reward = 0
         self._max_reward = 0
         self._models_saved = 0
 
