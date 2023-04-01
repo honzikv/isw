@@ -3,6 +3,7 @@ import pytorch_lightning as pl
 import torch.utils.data
 import wandb
 import os
+import numpy as np
 
 from collections import deque
 from dataclasses import dataclass
@@ -47,9 +48,11 @@ class DeepQLearningConfig:
 
 class DeepQModuleLightning(pl.LightningModule):
 
-    def __init__(self, env: Environment, config: DeepQLearningConfig, device, optimizer_fn=torch.optim.AdamW):
+    def __init__(self, env: Environment, config: DeepQLearningConfig, device, log_wandb: bool = False,
+                 optimizer_fn=torch.optim.AdamW):
         super().__init__()
         self.hparams['config'] = config
+        self._log_wandb = log_wandb
         self.save_hyperparameters()
 
         self.config = config
@@ -75,7 +78,7 @@ class DeepQModuleLightning(pl.LightningModule):
         self._optimizer_fn = optimizer_fn
         self._eps = self.config.eps_init
         self._k = (config.eps_init - config.eps_final) / config.eps_decay_timesteps
-        self._running_values = deque([0 for _ in range(1000)], maxlen=100)
+        self._running_values = deque([0 for _ in range(100)], maxlen=100)
 
         self._timesteps = 0
         self._max_reward = 0
@@ -128,6 +131,9 @@ class DeepQModuleLightning(pl.LightningModule):
         self._running_values.append(total_reward)
         self._max_reward = max(self._max_reward, total_reward)
         loss = self.compute_loss(batch)
+
+        # 95th percentile of the last 1000 rewards
+        reward95 = np.quantile(self._running_values, .95)
         running_avg = sum(self._running_values) / len(self._running_values)
 
         self.log('episode_reward', total_reward, prog_bar=True)
@@ -136,20 +142,20 @@ class DeepQModuleLightning(pl.LightningModule):
         self.log('loss', loss, prog_bar=True)
         self.log('timesteps', self._timesteps, prog_bar=False)
         self.log('running_avg_reward', running_avg, prog_bar=True)
+        self.log('reward95', reward95, prog_bar=True)
 
         # Update the target network
         self.target_net.load_state_dict(self.candidate_net.state_dict())
 
-        if running_avg > self.config.max_score:
+        if reward95 > self.config.max_score:
             self._models_saved += 1
-            run_name = wandb.run.name
-            print(f'Found model with reward {total_reward} at epoch {self.trainer.current_epoch}! Saving...')
+            run_name = wandb.run.name if self._log_wandb else 'model'
             os.makedirs('weights', exist_ok=True)
             self.trainer.save_checkpoint(
-                f'weights/{run_name}_reward={total_reward}-episodes={self.trainer.current_epoch}.ckpt')
+                f'weights/{run_name}_reward95={reward95}-episodes={self.trainer.current_epoch}.ckpt')
 
-            if self._models_saved >= 50:
-                print('Found 50 models with reward > 150. Stopping training...')
+            if self._models_saved >= 10:
+                print(f'Found 10 models with reward > {self.config.max_score}. Stopping training...')
                 self.trainer.should_stop = True
 
         return loss

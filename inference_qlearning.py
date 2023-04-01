@@ -4,7 +4,7 @@ import numpy as np
 import random
 
 from agent.qlearning_agent import QLearningAgent, QLearningConfig
-from src.environment import Connect4, TicTacToe, FrozenLake, CartPole, MountainCar, LectureExample, MultiArmedBandit
+from src.environment import FrozenLake
 from src.play import Simulator
 
 
@@ -28,7 +28,6 @@ if __name__ == '__main__':
     random.seed(0)
 
     agent.train(n_episodes=15_000)
-    agent.eval(n_episodes=10_000)
 
     # save(file='qlearning_agent.pkl', qlearning_agent=agent)
 

@@ -20,7 +20,7 @@ if __name__ == '__main__':
         batch_size=64,
         init_buffer_steps=1000,
         lr=5e-4,
-        max_score=500,
+        max_score=1000,
     )
 
     deepq_model = DeepQModuleLightning(
@@ -28,6 +28,7 @@ if __name__ == '__main__':
         config=config,
         device='cpu',  # actually this does nothing lmfao
         optimizer_fn=torch.optim.AdamW,
+        log_wandb=LOG_WANDB,
     )
 
     if LOG_WANDB:

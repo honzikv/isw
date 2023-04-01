@@ -5,7 +5,7 @@ import numpy as np
 
 from pathlib import Path
 
-from agent.qlearning_agent import QLearningAgent
+from agent.qlearning_agent.qlearning_agent import QLearningAgent
 
 
 def save(file: str, qlearning_agent: QLearningAgent):
@@ -34,7 +34,7 @@ def load(file: Path, agent: QLearningAgent):
     with open(file, 'rb') as file:
         state_dict = pickle.load(file=file)
 
-    agent._q_table = defaultdict(lambda: np.zeros(agent._env.num_actions), state_dict['q_table'])
+    agent._q_table = defaultdict(lambda: np.zeros(agent.env.num_actions), state_dict['q_table'])
     agent._timesteps = state_dict['timesteps']
     agent._episode_timesteps = state_dict['episode_timesteps']
     agent._successful_episodes = state_dict['successful_episodes']

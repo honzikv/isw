@@ -74,13 +74,13 @@ class DeepQLearningAgent(Agent):
             net = self._net
             assert net is not None, 'net must be injected via parameter or set as property'
 
+        if isinstance(valid_actions, set):
+            valid_actions = list(valid_actions)
+            valid_actions.sort()
+
         device = device or self._device
         eps = eps or 0.0
         if random.uniform(0, 1) > eps:
-            # if isinstance(state, set):
-            #     state = list(state)
-            #     state.sort()
-
             if not isinstance(state, torch.Tensor):
                 state = torch.tensor(state, dtype=torch.float32, device=device)
             else:

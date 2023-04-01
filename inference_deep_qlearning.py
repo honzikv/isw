@@ -15,8 +15,7 @@ def main(args):
         print(f'Weights file {args.weights_path} does not exist')
         exit(1)
 
-    deepq_model = DeepQModuleLightning.load_from_checkpoint(args.weights_path, env=env, config=DeepQLearningConfig(),
-                                                            device=None)
+    deepq_model = DeepQModuleLightning.load_from_checkpoint(args.weights_path, env=env, device=None)
 
     pl.seed_everything(42069)
 
@@ -26,7 +25,10 @@ def main(args):
         net=net,
     )
 
-    simulator = Simulator(env, agent, fps=10)
+    success, avg_cumu_reward, avg_steps = env.evaluate(agent=agent)
+    print(f'Success: {success}, Avg. cumu. Reward: {avg_cumu_reward}, Avg. Steps: {avg_steps}')
+
+    simulator = Simulator(env, agent, fps=144)
     simulator.show()
     simulator.run()
 

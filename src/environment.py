@@ -410,7 +410,7 @@ class RatedAgentWrapper:
         return hash(self.id)
 
     def __eq__(self, other):
-        return self.id == other.id and self.agent == other.agent
+        return self.id == other.id and self.agent == other._agent
 
 
 class AdversarialEnvironment(Environment):
@@ -443,7 +443,7 @@ class AdversarialEnvironment(Environment):
 
         current_player = 0
         while not self._is_terminal:
-            a = players[current_player].agent.best_action(self._state_observable, self._valid_actions)
+            a = players[current_player]._agent.best_action(self._state_observable, self._valid_actions)
             self.act(a)
             current_player = 1 - current_player
 

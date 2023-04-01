@@ -1,8 +1,6 @@
 from collections import defaultdict
-from pathlib import Path
 
 import tqdm
-import pickle
 
 from src.agent import Agent
 from src.environment import Environment

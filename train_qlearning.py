@@ -1,9 +1,7 @@
 import argparse
-from agent import serialization
 
-from queue import Queue
-
-from agent.qlearning_agent import QLearningAgent, QLearningConfig
+from agent.qlearning_agent.qlearning_agent import QLearningAgent, QLearningConfig
+from agent.qlearning_agent import serialization
 from src.environment import FrozenLake
 
 if __name__ == '__main__':
@@ -11,13 +9,10 @@ if __name__ == '__main__':
 
     # argparser.add_argument('--n-episodes', type=int, help='Number of episodes', required=False, default=100_000)
 
-    argparser.add_argument('--output-file', type=str, help='Output file', required=False, default='qlearning_agent.pkl')
+    argparser.add_argument('--output-file', type=str, help='Output file', required=False, default=None)
 
     args = argparser.parse_args()
-
     env = FrozenLake()
-    queue = Queue()
-
     agent = QLearningAgent(
         env=env,
         config=QLearningConfig(
@@ -30,4 +25,5 @@ if __name__ == '__main__':
         )
     )
 
-    serialization.save(file=args.output_file, qlearning_agent=agent)
+    if args.output_file is not None:
+        serialization.save(file=args.output_file, qlearning_agent=agent)
