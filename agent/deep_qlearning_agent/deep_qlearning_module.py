@@ -4,6 +4,7 @@ import torch.utils.data
 import wandb
 import os
 
+from collections import deque
 from dataclasses import dataclass
 
 from agent.deep_qlearning_agent.deep_qlearning_agent import DeepQLearningAgent
@@ -13,15 +14,19 @@ from src.environment import Environment
 
 class DeepQNetwork(torch.nn.Module):
 
-    def __init__(self, input_size: int, n_actions: int, hidden_size: int = 64, activation_fn=torch.nn.Softplus):
+    def __init__(self, input_size: int, n_actions: int, hidden_size_1: int = 256, hidden_size_2=128,
+                 activation_fn=torch.nn.Mish):
         super().__init__()
 
-        self.input_layer = torch.nn.Linear(in_features=input_size, out_features=hidden_size)
-        self.output_layer = torch.nn.Linear(in_features=hidden_size, out_features=n_actions)
+        self.input_layer = torch.nn.Linear(in_features=input_size, out_features=hidden_size_1)
+        self.hidden_layer = torch.nn.Linear(in_features=hidden_size_1, out_features=hidden_size_2)
+        self.output_layer = torch.nn.Linear(in_features=hidden_size_2, out_features=n_actions)
         self.activation = activation_fn()
 
     def forward(self, x):
         out = self.input_layer(x)
+        out = self.activation(out)
+        out = self.hidden_layer(out)
         out = self.activation(out)
         out = self.output_layer(out)
         return out
@@ -37,7 +42,7 @@ class DeepQLearningConfig:
     eps_final: float = .05
     eps_decay_timesteps: int = 15_000
     gamma: float = .99
-    max_score: int = 80
+    max_score: int = 150
 
 
 class DeepQModuleLightning(pl.LightningModule):
@@ -70,10 +75,12 @@ class DeepQModuleLightning(pl.LightningModule):
         self._optimizer_fn = optimizer_fn
         self._eps = self.config.eps_init
         self._k = (config.eps_init - config.eps_final) / config.eps_decay_timesteps
+        self._running_values = deque([0 for _ in range(1000)], maxlen=100)
 
         self._timesteps = 0
         self.episode_reward = 0
         self._max_reward = 0
+        self._models_saved = 0
 
         # Move the networks to the device - this needs to be done explicitly
         # to ensure init_replay_buffer() works as intended on CUDA/MPS
@@ -119,24 +126,32 @@ class DeepQModuleLightning(pl.LightningModule):
             device=self._device,
         )
 
+        self._running_values.append(total_reward)
         self._max_reward = max(self._max_reward, total_reward)
         loss = self.compute_loss(batch)
+        running_avg = sum(self._running_values) / len(self._running_values)
 
         self.log('episode_reward', total_reward, prog_bar=True)
         self.log('eps', self.eps, prog_bar=True)
         self.log('max_reward', self._max_reward, prog_bar=False)
         self.log('loss', loss, prog_bar=True)
         self.log('timesteps', self._timesteps, prog_bar=False)
+        self.log('running_avg_reward', running_avg, prog_bar=True)
 
         # Update the target network
         self.target_net.load_state_dict(self.candidate_net.state_dict())
 
-        if total_reward > self.config.max_score:
+        if running_avg > self.config.max_score:
+            self._models_saved += 1
             run_name = wandb.run.name
             print(f'Found model with reward {total_reward} at epoch {self.trainer.current_epoch}! Saving...')
             os.makedirs('weights', exist_ok=True)
             self.trainer.save_checkpoint(
                 f'weights/{run_name}_reward={total_reward}-episodes={self.trainer.current_epoch}.ckpt')
+
+            if self._models_saved >= 50:
+                print('Found 50 models with reward > 150. Stopping training...')
+                self.trainer.should_stop = True
 
         return loss
 
