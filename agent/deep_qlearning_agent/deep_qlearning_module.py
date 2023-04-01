@@ -14,9 +14,21 @@ from src.environment import Environment
 
 
 class DeepQNetwork(torch.nn.Module):
+    """
+    Network architecture for Deep Q-Learning
+    """
 
     def __init__(self, input_size: int, n_actions: int, hidden_size_1: int = 256, hidden_size_2=128,
                  activation_fn=torch.nn.Mish):
+        """
+        MLP with 2 hidden layers
+        Args:
+            input_size: Size of the input layer
+            n_actions: Number of actions
+            hidden_size_1: Size of the first hidden layer
+            hidden_size_2: Size of the second hidden layer
+            activation_fn: Activation function
+        """
         super().__init__()
 
         self.input_layer = torch.nn.Linear(in_features=input_size, out_features=hidden_size_1)
@@ -35,21 +47,30 @@ class DeepQNetwork(torch.nn.Module):
 
 @dataclass(frozen=True)
 class DeepQLearningConfig:
-    batch_size: int = 16
-    lr: float = 1e-2
-    replay_buffer_size: int = 1000
-    init_buffer_steps: int = 1000
-    eps_init: float = 1.0
-    eps_final: float = .05
-    eps_decay_timesteps: int = 15_000
-    gamma: float = .99
-    max_score: int = 150
+    batch_size: int = 16  # number of samples processed per each training step
+    lr: float = 5e-4  # learning rate for the optimizer
+    replay_buffer_size: int = 10_000  # size of the replay buffer
+    init_buffer_steps: int = 1000  # number of steps to fill the replay buffer with random actions
+    eps_init: float = 1.0  # initial value of epsilon
+    eps_final: float = .05  # final value of epsilon
+    eps_decay_timesteps: int = 15_000  # number of timesteps to decay epsilon from eps_init to eps_final
+    gamma: float = .99  # discount factor
+    max_score: int = 1000 # maximum score to reach before stopping the training. 1k is enough to "solve" CartPole
 
 
 class DeepQModuleLightning(pl.LightningModule):
 
     def __init__(self, env: Environment, config: DeepQLearningConfig, device, log_wandb: bool = False,
                  optimizer_fn=torch.optim.AdamW):
+        """
+        PyTorch Lightning module for Deep Q-Learning
+        Args:
+            env: Environment
+            config: Configuration
+            device: Device to use
+            log_wandb
+            optimizer_fn: Optimizer function e.g. torch.optim.RMSProp
+        """
         super().__init__()
         self.hparams['config'] = config
         self._log_wandb = log_wandb
@@ -99,10 +120,16 @@ class DeepQModuleLightning(pl.LightningModule):
         return self.config.eps_final
 
     def _init_replay_buffer(self, steps: int):
+        """
+        Fill the replay buffer with random actions
+        """
         for _ in range(steps):
             self._agent.step(self.candidate_net, eps=1.0, device=self._device)
 
     def compute_loss(self, batch):
+        """
+        Compute the loss for the given batch
+        """
         states, actions, next_states, rewards, next_valid_actions, are_terminal = batch
 
         # Compute state action values
@@ -118,9 +145,18 @@ class DeepQModuleLightning(pl.LightningModule):
         return torch.nn.functional.mse_loss(state_action_values, expected_state_action_values)
 
     def increment_timestep(self):
+        """
+        Increment the timestep counter - injected to the agent
+        """
         self._timesteps += 1
 
     def training_step(self, batch, batch_idx: int):
+        """
+        Training step
+        Args:
+            batch: Batch of samples
+            batch_idx: Batch index
+        """
         total_reward = self._agent.run_episode(
             net=self.candidate_net,
             get_eps=lambda: self.eps,
@@ -167,6 +203,9 @@ class DeepQModuleLightning(pl.LightningModule):
         return self.__dataloader()
 
     def __dataloader(self):
+        """
+        Dataloader override to provide data to training_step
+        """
         dataset = ExperienceDataset(self._replay_buffer)
         dataloader = torch.utils.data.DataLoader(
             dataset=dataset,

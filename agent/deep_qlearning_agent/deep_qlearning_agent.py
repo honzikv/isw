@@ -10,8 +10,17 @@ from src.environment import Environment
 
 
 class DeepQLearningAgent(Agent):
+    """
+    Deep Q-Learning agent implementation
+    """
 
     def __init__(self, env: Environment, replay_buffer: ReplayBuffer, device):
+        """
+        Args:
+            env: Environment
+            replay_buffer: Replay buffer
+            device: Device to use
+        """
         super().__init__(env)
 
         self._replay_buffer = replay_buffer
@@ -30,6 +39,9 @@ class DeepQLearningAgent(Agent):
         return agent
 
     def reset_env(self):
+        """
+        Reset the environment and set the initial state
+        """
         state, _, valid_actions, _ = self._env.set_to_initial_state()
         self.state = state
         self.valid_actions = list(valid_actions)
