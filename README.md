@@ -9,7 +9,7 @@
 Create new conda environment:
 
 ```zsh
-conda create --name isw python=3.9
+conda create --name isw python=3.11
 
 # CUDA
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117
